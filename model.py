@@ -1,7 +1,7 @@
 
 import tensorflow as tf
 
-def build_fcn_graph(x, variant, num_classes=10):
+def build_fcn_graph(x, variant, num_classes=10, l2_decay=1e-3):
     variants = ['fcn-32s', 'fcn-16s', 'fcn-8s']
     assert variant in variants, f'Unknown variant! Supported variants: {variants}'
 
@@ -10,7 +10,7 @@ def build_fcn_graph(x, variant, num_classes=10):
     with tf.variable_scope(
             'vgg16',
             initializer=tf.initializers.he_normal(),
-            regularizer=tf.keras.regularizers.l2(l=1e-3)):
+            regularizer=tf.keras.regularizers.l2(l2_decay)):
 
         conv1 = tf.layers.Conv2D(64, 3, activation=relu, padding='same')(x)
         conv1 = tf.layers.Conv2D(64, 3, activation=relu, padding='same')(conv1)
@@ -68,7 +68,7 @@ def build_fcn_graph(x, variant, num_classes=10):
             logits = tf.layers.Conv2DTranspose(
                 num_classes, 16, strides=8, padding='same', name='logits')(
                     score_conv7 + score_pool4 + score_pool3)
-        
+
         else: raise NotImplementedError(
             f'Unknown variant: {variant} ! Supported variants: {variants}')
 
