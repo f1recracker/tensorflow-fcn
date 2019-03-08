@@ -47,8 +47,8 @@ def get_split(train_root, splits, seed=1):
 
 
 def build_dataset(files, size=(384, 1280), normalize=True,
-                  normalize_mean=tf.zeros((3,)),
-                  normalize_std=tf.ones((3,))):
+                  normalize_mean=[0.0, 0.0, 0.0],
+                  normalize_std=[1.0, 1.0, 1.0]):
     ''' Converts a list of files into a tf.data.Dataset '''
     images, labels = zip(*files)
 
@@ -72,9 +72,7 @@ def build_dataset(files, size=(384, 1280), normalize=True,
     labels_dataset = labels_dataset.map(functools.partial(to_tensor, mode='label'))
 
     def normalize_fn(image):
-        return (image - normalize_mean) / normalize_std
-
-    print(images_dataset)
+        return (image - tf.constant(normalize_mean)) / tf.constant(normalize_std)
 
     if normalize:
         images_dataset = images_dataset.map(normalize_fn)
