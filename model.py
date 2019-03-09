@@ -1,7 +1,7 @@
 
 import tensorflow as tf
 
-def build_fcn_graph(x, variant, num_classes=10, l2_decay=1e-3):
+def build_fcn_graph(x, variant, num_classes=10, l2_decay=1e-2):
     variants = ['fcn-32s', 'fcn-16s', 'fcn-8s']
     assert variant in variants, f'Unknown variant! Supported variants: {variants}'
 

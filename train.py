@@ -16,6 +16,7 @@ if __name__ == '__main__':
     train_dataset = build_dataset(train_files, size=(height, width))
     validation_dataset = build_dataset(validation_files, size=(height, width))
 
+    # TODO
     # train_dataset = build_aug_pipeline(train_dataset)
 
     train_dataset = train_dataset.shuffle(32).batch(batch_size).prefetch(batch_size * 2)
@@ -34,34 +35,36 @@ if __name__ == '__main__':
     x = tf.placeholder(tf.float32, shape=[None, None, None, 3], name='x')
     y = tf.placeholder(tf.uint8, shape=[None, None, None], name='y')
 
-    logits = build_fcn_graph(x, 'fcn-32s', num_classes=num_classes)
+    logits = build_fcn_graph(x, 'fcn-8s', num_classes=num_classes)
 
     mask = tf.not_equal(y, 255)
 
-    loss = tf.reduce_mean(tf.boolean_mask(
-        tf.nn.softmax_cross_entropy_with_logits_v2(
-            tf.one_hot(y, num_classes), logits),
-        mask))
+    loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(
+        tf.boolean_mask(tf.one_hot(y, num_classes), mask),
+        tf.boolean_mask(logits, mask)))
     loss = tf.add(loss, tf.losses.get_regularization_loss(), name='total_loss')
 
-    global_step = tf.Variable(0, trainable=False)
+    global_step = tf.Variable(1, trainable=False)
     learning_rate = tf.train.exponential_decay(
-        1e-3, global_step, 1, 0.96, staircase=True)
+        1e-4, global_step, 1 * len(train_files), 0.99, staircase=True)
     optimizer = tf.train.AdamOptimizer(
         learning_rate=learning_rate).minimize(loss, global_step=global_step)
 
+    tf.summary.scalar('learning_rate', learning_rate)
+
 
     # Metrics
-    y_pred = tf.argmax(logits, axis=3, name='y_pred')
     c_matrix = tf.math.confusion_matrix(
         tf.boolean_mask(y, mask),
-        tf.boolean_mask(y_pred, mask),
+        tf.boolean_mask(tf.argmax(logits, axis=3, name='y_pred'), mask),
         num_classes=num_classes)
 
-    pixel_acc = tf.reduce_sum(tf.diag_part(c_matrix)) / tf.reduce_sum(c_matrix)
     tp = tf.diag_part(c_matrix)
-    fp_fn = tf.reduce_sum(c_matrix, axis=0) + tf.reduce_sum(c_matrix, axis=1)
-    mean_iou = tf.reduce_mean(tp / (tp + fp_fn))
+    fp = tf.reduce_sum(c_matrix, axis=0) - tp
+    fn = tf.reduce_sum(c_matrix, axis=1) - tp
+
+    pixel_acc = tf.reduce_sum(tp) / tf.reduce_sum(c_matrix)
+    mean_iou = tf.reduce_mean(tp / (tp + fp + fn))
 
     tf.summary.scalar('loss', loss)
     tf.summary.scalar('pixel_accuracy', pixel_acc)
@@ -106,4 +109,4 @@ if __name__ == '__main__':
                     summaries, feed_dict={x: batch_x, y: batch_y})
                 writer_val.add_summary(summary, epoch)
 
-            saver.save(sess, 'train/checkpoints/model.ckpt')
+            # saver.save(sess, 'train/checkpoints/model.ckpt')
