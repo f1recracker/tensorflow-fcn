@@ -90,8 +90,8 @@ def build_dataset(files, size=(384, 1280), normalize=True,
     return dataset
 
 
-def build_aug_pipeline(image, label, batched_input=False,
-                       hflip_prob=0.5, max_crop_ratio=0.8):
+def augmentation_pipeline(image, label, batched_input=False,
+                          hflip_prob=0.5, max_crop_ratio=0.8):
     if not batched_input:
         image = tf.expand_dims(image, 0)
         label = tf.expand_dims(tf.expand_dims(label, 0), 3)
@@ -135,7 +135,7 @@ if __name__ == "__main__":
     train = train[:20]
 
     train_dataset = build_dataset(train, size=(384, 1280))
-    # train_dataset = train_dataset.map(build_aug_pipeline)
+    train_dataset = train_dataset.map(augmentation_pipeline)
 
     train_dataset = train_dataset.shuffle(64).batch(1).prefetch(1 * 2)
 

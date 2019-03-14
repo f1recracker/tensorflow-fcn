@@ -2,7 +2,7 @@
 
 import tensorflow as tf
 
-from dataset import get_split, build_dataset, build_aug_pipeline
+from dataset import get_split, build_dataset, augmentation_pipeline
 from model import build_fcn_graph
 
 if __name__ == '__main__':
@@ -16,12 +16,14 @@ if __name__ == '__main__':
     train_dataset = build_dataset(train_files, size=(height, width))
     validation_dataset = build_dataset(validation_files, size=(height, width))
 
-    # TODO
-    # train_dataset = build_aug_pipeline(train_dataset)
+    train_dataset = train_dataset.map(augmentation_pipeline)
+    train_dataset = train_dataset.shuffle(batch_size * 8).batch(batch_size)
+    validation_dataset = validation_dataset.batch(batch_size)
 
-    train_dataset = train_dataset.shuffle(32).batch(batch_size).prefetch(batch_size * 2)
-    validation_dataset = validation_dataset.batch(batch_size).prefetch(batch_size * 2)
+    train_dataset = train_dataset.apply(tf.data.experimental.prefetch_to_device('/gpu:0'))
+    validation_dataset = validation_dataset.apply(tf.data.experimental.prefetch_to_device('/gpu:0'))
 
+    # TODO remove in tf2 migration
     train_iter = train_dataset.make_initializable_iterator()
     validation_iter = validation_dataset.make_initializable_iterator()
 
@@ -36,6 +38,7 @@ if __name__ == '__main__':
     y = tf.placeholder(tf.uint8, shape=[None, None, None], name='y')
 
     logits = build_fcn_graph(x, 'fcn-8s', num_classes=num_classes)
+    y_pred = tf.argmax(logits, axis=3, name='y_pred')
 
     mask = tf.not_equal(y, 255)
 
@@ -46,17 +49,16 @@ if __name__ == '__main__':
 
     global_step = tf.Variable(1, trainable=False)
     learning_rate = tf.train.exponential_decay(
-        1e-4, global_step, 1 * len(train_files), 0.99, staircase=True)
+        1e-4, global_step, len(train_files) / batch_size, 0.993, staircase=True)
     optimizer = tf.train.AdamOptimizer(
         learning_rate=learning_rate).minimize(loss, global_step=global_step)
 
-    tf.summary.scalar('learning_rate', learning_rate)
-
+    lr_summary = tf.summary.scalar('learning_rate', learning_rate)
 
     # Metrics
     c_matrix = tf.math.confusion_matrix(
         tf.boolean_mask(y, mask),
-        tf.boolean_mask(tf.argmax(logits, axis=3, name='y_pred'), mask),
+        tf.boolean_mask(y_pred, mask),
         num_classes=num_classes)
 
     tp = tf.diag_part(c_matrix)
@@ -66,10 +68,11 @@ if __name__ == '__main__':
     pixel_acc = tf.reduce_sum(tp) / tf.reduce_sum(c_matrix)
     mean_iou = tf.reduce_mean(tp / (tp + fp + fn))
 
-    tf.summary.scalar('loss', loss)
-    tf.summary.scalar('pixel_accuracy', pixel_acc)
-    tf.summary.scalar('mean_iou', mean_iou)
-    summaries = tf.summary.merge_all()
+    summaries = tf.summary.merge([
+        tf.summary.scalar('loss', loss),
+        tf.summary.scalar('pixel_accuracy', pixel_acc),
+        tf.summary.scalar('mean_iou', mean_iou)
+    ])
 
 
     # Tensorboard and checkpointing
@@ -82,6 +85,7 @@ if __name__ == '__main__':
     writer_val = tf.summary.FileWriter(f'train/tensorboard/{timenow}/validation')
 
 
+    # TODO remove in tf2 migration
     def sample(sess, next_op):
         ''' Returns a mininatch from an iterator '''
         while True:
@@ -93,9 +97,11 @@ if __name__ == '__main__':
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
-        max_epochs = 500
+        max_epochs = 1000
 
         for epoch in range(max_epochs):
+
+            writer_train.add_summary(sess.run(lr_summary), epoch)
 
             sess.run(train_iter.initializer)
             for batch_x, batch_y in sample(sess, train_next):
@@ -109,4 +115,4 @@ if __name__ == '__main__':
                     summaries, feed_dict={x: batch_x, y: batch_y})
                 writer_val.add_summary(summary, epoch)
 
-            # saver.save(sess, 'train/checkpoints/model.ckpt')
+            saver.save(sess, 'train/checkpoints/model.ckpt')
