@@ -86,11 +86,44 @@ def build_dataset(files, size=(384, 1280), normalize=True,
 
     labels_dataset = labels_dataset.map(color_to_label)
     dataset = tf.data.Dataset.zip((images_dataset, labels_dataset))
+    # dataset = images_dataset.zip(labels_dataset)
     return dataset
 
 
-def build_aug_pipeline(dataset):
-    raise NotImplementedError('Augmentation pipeline not implemented')
+def build_aug_pipeline(image, label, batched_input=False,
+                       hflip_prob=0.5, max_crop_ratio=0.8):
+    if not batched_input:
+        image = tf.expand_dims(image, 0)
+        label = tf.expand_dims(tf.expand_dims(label, 0), 3)
+
+    batch_size, height, width, _ = [d.value for d in image.shape]
+
+    # Horizontal flip
+    flip = tf.random_uniform((batch_size,)) < hflip_prob
+    image = tf.where(flip, tf.image.flip_left_right(image), image)
+    label = tf.where(flip, tf.image.flip_left_right(label), label)
+
+    # Crop and resize image
+    cut_ratio = (1 - max_crop_ratio) / 2
+    boxes_1 = tf.random.uniform([batch_size, 2], 0, cut_ratio)
+    boxes_2 = tf.random.uniform([batch_size, 2], 1 - cut_ratio, 1)
+    boxes = tf.concat([boxes_1, boxes_2], 1)
+    image = tf.image.crop_and_resize(
+        image, boxes, tf.range(batch_size), tf.constant([height, width]))
+    label = tf.image.crop_and_resize(
+        label, boxes, tf.range(batch_size), tf.constant([height, width]), method="nearest")
+
+    # Add random brightness, hue, contrast, and saturation
+    # image = tf.image.random_brightness(image, None)
+    # image = tf.image.random_hue(image, None)
+    # image = tf.image.random_contrast(image, None, None)
+    # image = tf.image.random_saturation(image, None, None)
+
+    if not batched_input:
+        image = tf.squeeze(image, [0])
+        label = tf.squeeze(label, [0, 3])
+
+    return (image, label)
 
 
 if __name__ == "__main__":
@@ -102,7 +135,7 @@ if __name__ == "__main__":
     train = train[:20]
 
     train_dataset = build_dataset(train, size=(384, 1280))
-    # train_dataset = build_aug_pipeline(train_dataset)
+    # train_dataset = train_dataset.map(build_aug_pipeline)
 
     train_dataset = train_dataset.shuffle(64).batch(1).prefetch(1 * 2)
 
