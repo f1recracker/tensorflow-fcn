@@ -3,7 +3,6 @@
 
 import functools
 import os
-import random
 import re
 
 import tensorflow as tf
@@ -32,37 +31,24 @@ def _list_files(root, labels=True):
     return dataset
 
 
-def get_split(train_root, splits, seed=1):
-    files = _list_files(train_root)
-    assert sum(splits) == len(files)
-
-    random.seed(seed)
-    random.shuffle(files)
-
-    results = tuple()
-    for size in splits:
-        results = results + (files[:size],)
-        files = files[size:]
-    return results
-
-
-def build_dataset(files, size=(384, 1280), normalize=True,
+def build_dataset(root, size=(384, 1280), normalize=True,
                   normalize_mean=[0.0, 0.0, 0.0],
                   normalize_std=[1.0, 1.0, 1.0]):
     ''' Converts a list of files into a tf.data.Dataset '''
+    files = _list_files(root)
     images, labels = zip(*files)
 
     to_uint8 = lambda x: tf.cast(x, tf.uint8)
 
     def to_tensor(image_file, mode):
         assert mode in ['image', 'label'], f'Unsupported mode {mode}'
-        image = tf.read_file(image_file)
+        image = tf.io.read_file(image_file)
         image = tf.image.decode_png(image, channels=3)
         if mode == 'image':
-            image = tf.image.resize_images(image, size)
+            image = tf.image.resize(image, size)
             image = image / 255.0
         if mode == 'label':
-            image = tf.image.resize_images(
+            image = tf.image.resize(
                 image, size, method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)
             image = to_uint8(image)
         return image
@@ -99,10 +85,13 @@ def augmentation_pipeline(image, label, batched_input=False,
         image = tf.expand_dims(image, 0)
         label = tf.expand_dims(tf.expand_dims(label, 0), 3)
 
-    batch_size, height, width, _ = [d.value for d in image.shape]
+    if tf.__version__.startswith('2.'): # Tensorflow 2
+        batch_size, height, width, _ = image.shape
+    else:
+        batch_size, height, width, _ = [d.value for d in image.shape]
 
     # Horizontal flip
-    flip = tf.random_uniform((batch_size,)) < hflip_prob
+    flip = tf.random.uniform((batch_size,)) < hflip_prob
     image = tf.where(flip, tf.image.flip_left_right(image), image)
     label = tf.where(flip, tf.image.flip_left_right(label), label)
 
@@ -134,12 +123,8 @@ if __name__ == "__main__":
     import numpy as np
     import cv2
 
-    train, _ = get_split('data_road/training', (289, 0))
-    train = train[10:12]
-
-    train_dataset = build_dataset(train, size=(384, 1280))
+    train_dataset = build_dataset('data_road/training', size=(384, 1280))
     train_dataset = train_dataset.map(augmentation_pipeline)
-
     train_dataset = train_dataset.repeat(20).batch(1).prefetch(1 * 2)
 
     train_next = train_dataset.make_initializable_iterator()

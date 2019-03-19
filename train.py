@@ -2,8 +2,8 @@
 
 import tensorflow as tf
 
-from dataset import get_split, build_dataset, augmentation_pipeline
-from model import build_fcn_graph
+from dataset import build_dataset, augmentation_pipeline
+from model import fcn_model  
 
 if __name__ == '__main__':
 
@@ -11,16 +11,14 @@ if __name__ == '__main__':
     batch_size = 4
 
     # Create dataset
-    train_files, validation_files = get_split('data_road/training', (200, 89), seed=1)
-
-    train_dataset = build_dataset(train_files, size=(height, width))
-    validation_dataset = build_dataset(validation_files, size=(height, width))
+    train_dataset = build_dataset('data_road/training', size=(height, width))
+    train_dataset, validation_dataset = train_dataset.take(200), train_dataset.skip(200)
 
     train_dataset = train_dataset.map(augmentation_pipeline)
     train_dataset = train_dataset.shuffle(batch_size * 8).batch(batch_size)
-    validation_dataset = validation_dataset.batch(batch_size)
-
     train_dataset = train_dataset.apply(tf.data.experimental.prefetch_to_device('/gpu:0'))
+
+    validation_dataset = validation_dataset.batch(batch_size)
     validation_dataset = validation_dataset.apply(tf.data.experimental.prefetch_to_device('/gpu:0'))
 
     # TODO remove in tf2 migration
@@ -37,7 +35,7 @@ if __name__ == '__main__':
     x = tf.placeholder(tf.float32, shape=[None, None, None, 3], name='x')
     y = tf.placeholder(tf.uint8, shape=[None, None, None], name='y')
 
-    logits = build_fcn_graph(x, 'fcn-8s', num_classes=num_classes)
+    logits = fcn_model(x, 'fcn-8s', num_classes=num_classes)
     y_pred = tf.argmax(logits, axis=3, name='y_pred')
 
     mask = tf.not_equal(y, 255)
@@ -49,7 +47,7 @@ if __name__ == '__main__':
 
     global_step = tf.Variable(1, trainable=False)
     learning_rate = tf.train.exponential_decay(
-        1e-4, global_step, len(train_files) / batch_size, 0.993, staircase=True)
+        1e-4, global_step, 289 / batch_size, 0.993, staircase=True)
     optimizer = tf.train.AdamOptimizer(
         learning_rate=learning_rate).minimize(loss, global_step=global_step)
 
@@ -97,7 +95,7 @@ if __name__ == '__main__':
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
-        max_epochs = 1000
+        max_epochs = 100
 
         for epoch in range(max_epochs):
 
